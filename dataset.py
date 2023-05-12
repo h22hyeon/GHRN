@@ -18,29 +18,34 @@ import dgl.function as fn
 warnings.filterwarnings("ignore")
 
 class Dataset:
-    def __init__(self, load_epoch, name='tfinance', del_ratio=0., homo=True, data_path='', adj_type='sym'):
+    def __init__(self, args, load_epoch, name='tfinance', del_ratio=0., homo=True, data_path='', adj_type='sym'):
         self.name = name
         graph = None
         prefix = data_path
+        model = 'BWGNN(homo)' if args.homo == 1 else 'BWGNN(hetero)'
+        pkl_path = f"./{model}/{args.dataset}/probs_best({str(args.seed).zfill(2)}).pkl"
+        
         if name == 'tfinance':
+            prefix = './data/tfinance/raw'
             graph, label_dict = load_graphs(f'{prefix}/tfinance')
             graph = graph[0]
             graph.ndata['label'] = graph.ndata['label'].argmax(1)
             if del_ratio != 0.:
                 graph = graph.add_self_loop()
-                with open(f'probs_tfinance_BWGNN_{load_epoch}_{homo}.pkl', 'rb') as f:
-                    pred_y = pkl.load(f)
+                with open(pkl_path, 'rb') as f:
+                    pred_y = pkl.load(f).cpu()
                     graph.ndata['pred_y'] = pred_y
                 graph = random_walk_update(graph, del_ratio, adj_type)
                 graph = dgl.remove_self_loop(graph)
 
         elif name == 'tsocial':
+            prefix = './data/tsocial/raw'
             graph, label_dict = load_graphs(f'{prefix}/tsocial')
             graph = graph[0]
             if del_ratio != 0.:
                 graph = graph.add_self_loop()
-                with open(f'probs_tsocial_BWGNN_{load_epoch}_{homo}.pkl', 'rb') as f:
-                    pred_y = pkl.load(f)
+                with open(pkl_path, 'rb') as f:
+                    pred_y = pkl.load(f).cpu()
                     graph.ndata['pred_y'] = pred_y
                 graph = random_walk_update(graph, del_ratio, adj_type)
                 graph = dgl.remove_self_loop(graph)
@@ -52,22 +57,24 @@ class Dataset:
                 graph = dgl.to_homogeneous(dataset[0], ndata=['feature', 'label', 'train_mask', 'val_mask', 'test_mask'])
                 graph = dgl.add_self_loop(graph)
                 if del_ratio != 0.:
-                    with open(f'probs_yelp.pkl', 'rb') as f:
-                        graph.ndata['pred_y'] = pkl.load(f)
+                    with open(pkl_path, 'rb') as f:
+                        graph.ndata['pred_y'] = pkl.load(f).cpu()
                     graph = random_walk_update(graph, del_ratio, adj_type)
                     graph = dgl.add_self_loop(dgl.remove_self_loop(graph))
             else:
                 if del_ratio != 0.:
-                    with open(f'probs_yelp.pkl', 'rb') as f:
-                        pred_y = pkl.load(f)
+                    with open(pkl_path, 'rb') as f:
+                        pred_y = pkl.load(f).cpu()
                     data_dict = {}
+                    flag = 1
                     for relation in graph.canonical_etypes:
                         graph_r = dgl.to_homogeneous(graph[relation], ndata=['feature', 'label', 'train_mask', 'val_mask', 'test_mask'])
                         graph_r = dgl.add_self_loop(graph_r)
-                        graph_r.ndata['pred_y'] = pred_y
+                        graph_r.ndata['pred_y'] = pred_y.cpu()
                         graph_r = random_walk_update(graph_r, del_ratio, adj_type)
                         graph_r = dgl.remove_self_loop(graph_r)
                         data_dict[('review', str(flag), 'review')] = graph_r.edges()
+                        flag += 1
                     graph_new = dgl.heterograph(data_dict) 
                     graph_new.ndata['label'] = graph.ndata['label']
                     graph_new.ndata['feature'] = graph.ndata['feature']
@@ -83,14 +90,14 @@ class Dataset:
                 graph = dgl.to_homogeneous(dataset[0], ndata=['feature', 'label', 'train_mask', 'val_mask', 'test_mask'])
                 graph = dgl.add_self_loop(graph)
                 if del_ratio != 0.:
-                    with open(f'probs_amazon_BWGNN_{load_epoch}_{homo}.pkl', 'rb') as f:
-                        graph.ndata['pred_y'] = pkl.load(f)
+                    with open(pkl_path, 'rb') as f:
+                        graph.ndata['pred_y'] = pkl.load(f).cpu()
                     graph = random_walk_update(graph, del_ratio, adj_type)
                     graph = dgl.add_self_loop(dgl.remove_self_loop(graph))
             else:
                 if del_ratio != 0.:
-                    with open(f'probs_amazon_BWGNN_{load_epoch}_{homo}.pkl', 'rb') as f:
-                        pred_y = pkl.load(f)
+                    with open(pkl_path, 'rb') as f:
+                        pred_y = pkl.load(f).cpu()
                     data_dict = {}
                     flag = 1
                     for relation in graph.canonical_etypes:
