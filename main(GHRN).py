@@ -7,7 +7,7 @@ from sklearn.metrics import f1_score, recall_score, roc_auc_score, precision_sco
 from BWGNN import *
 from sklearn.model_selection import train_test_split
 import pickle as pkl
-import json
+
 
 from utils import *
 
@@ -26,10 +26,8 @@ def train(model, g, args):
     labels_index = g.ndata['label'].clone().cpu().numpy()
     # [STEP-1-2] Split the train/valid/test dataset.
     index = list(range(len(labels_index)))
-    if dataset_name.startswith('amazon'):
-        idx_unlabeled = 2013 if dataset_name == 'amazon_new' else 3305
-        index = list(range(idx_unlabeled, len(labels_index)))
-        
+    if dataset_name == 'amazon':
+        index = list(range(3305, len(labels_index)))
     idx_train, idx_rest, y_train, y_rest = train_test_split(index, labels_index[index], stratify=labels_index[index],
                                                             train_size=args.train_ratio,
                                                             random_state=args.seed, shuffle=True)
@@ -54,7 +52,7 @@ def train(model, g, args):
     # [STEP-2-1] Initialize the optimizer and variables.
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     best_f1, final_tf1, final_trec, final_tpre, final_tmf1, final_tauc = 0., 0., 0., 0., 0., 0.
-    auc_best, f1_mac_best, epoch_best = 0.0, 0.0, 0.0
+    auc_best, epoch_best = 0.0, 0.0
 
     # [STEP-2-2] Set the frequency weight for the cross entorpy loss.
     weight = (1-labels[train_mask]).sum().item() / labels[train_mask].sum().item()
@@ -76,11 +74,9 @@ def train(model, g, args):
         if (epoch+1) % args.valid_epochs == 0:
             probs = logits.softmax(1)
             log.write_valid_log(f"[Epoch - {str(epoch+1).zfill(4)}] - Validation results")
-            auc_val, recall_val, f1_mac_val, precision_val = test(labels[val_mask], probs[val_mask], log, flag='validation')
-            gain_auc = (auc_val - auc_best)/auc_best
-            gain_f1_mac =  (f1_mac_val - f1_mac_best)/f1_mac_best
-            if (gain_auc + gain_f1_mac) > 0:
-                auc_best, recall_best, f1_mac_best, precision_best, epoch_best = auc_val, recall_val, f1_mac_val, precision_val, epoch
+            auc_val, recall_val, f1_val, precision_val = test(labels[val_mask], probs[val_mask], log, flag='validation')
+            if auc_val > auc_best:
+                auc_best, recall_best, f1_best, precision_best, epoch_best = auc_val, recall_val, f1_val, precision_val, epoch
                 torch.save(model.state_dict(), path_saver)
                 if args.del_ratio == 0:
                     with open(prob_saver, 'wb') as f:
@@ -96,9 +92,9 @@ def train(model, g, args):
     model.load_state_dict(torch.load(path_saver))
     logits = model(features)
     probs = logits.softmax(1)
-    auc_test, recall_test, f1_mac_test, precision_test = test(labels[test_mask], probs[test_mask], log, flag='test')
+    auc_test, recall_test, f1_test, precision_test = test(labels[test_mask], probs[test_mask], log, flag='test')
         
-    return auc_test, recall_test, f1_mac_test, precision_test
+    return auc_test, recall_test, f1_test, precision_test
 
 
 # threshold adjusting for best macro f1
@@ -119,22 +115,34 @@ def set_seeds(seed):
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-def get_arguments():
-	parser = argparse.ArgumentParser()
-	parser.add_argument('--exp_config_path', type=str, default='./experiment_configs/template_GCN.json')
-	args = vars(parser.parse_args())
-	return args
 
 if __name__ == '__main__':
 
-    args = get_arguments()
-    with open(args['exp_config_path']) as f:
-        args = json.load(f)
-    args = argparse.Namespace(**args)
-    
+    parser = argparse.ArgumentParser(description='BWGNN')
+    parser.add_argument("--dataset", type=str, default="amazon",
+                        help="Dataset for this model (yelp/amazon/tfinance/tsocial)")
+    parser.add_argument("--seed", type=int, default=41, help="set the seed")
+    parser.add_argument("--train_ratio", type=float, default=0.4, help="Training ratio")
+    parser.add_argument("--hid_dim", type=int, default=64, help="Hidden layer dimension")
+    parser.add_argument("--order", type=int, default=2, help="Order C in Beta Wavelet")
+    parser.add_argument("--homo", type=int, default=0, help="1 for BWGNN(Homo) and 0 for BWGNN(Hetero)")
+    parser.add_argument("--epoch", type=int, default=500, help="The max number of epochs")
+    parser.add_argument("--valid_epochs", type=int, default=5, help="The number of validation epochs")
+    parser.add_argument("--run", type=int, default=5, help="Running times")
+    parser.add_argument("--lr", type=float, default=0.01, help="delete ratios")
+    parser.add_argument("--weight_decay", type=float, default=0.001, help="delete ratios")
+    parser.add_argument("--del_ratio", type=float, default=0., help="delete ratios")
+    parser.add_argument("--adj_type", type=str, default='sym', help="sym or rw")
+    parser.add_argument("--load_epoch", type=int, default=100, help="load epoch prediction")
+    parser.add_argument("--patience", type=int, default=100, help="load epoch prediction")
+    parser.add_argument("--cuda_id", type=int, default=0, help="load epoch prediction")
+    parser.add_argument("--data_path", type=str, default='./data', help="data path")
+
+    args = parser.parse_args()
     device = torch.device(args.cuda_id)
     torch.cuda.set_device(device)
-    
+    # with open('result.txt', 'a+') as f:
+    #     f.write(f'{args}\n')
     dataset_name = args.dataset
     del_ratio = args.del_ratio
     homo = args.homo
@@ -148,7 +156,7 @@ if __name__ == '__main__':
     graph = graph.to(device)
     in_feats = graph.ndata['feature'].shape[1]
     num_classes = 2
-
+    
     # official seed
     if args.run == 1:
         set_seeds(args.seed)
@@ -161,10 +169,14 @@ if __name__ == '__main__':
         train(model, graph, args)
 
     else:
-        seed_l = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]
+        del_ratio_l = None
+        if args.dataset == 'amazon':
+            del_ratio_l = list(np.arange(0.01, 0.026, 0.005))
+        elif args.dataset == 'yelp':
+            del_ratio_l = list(np.arange(0.05, 0.21, 0.05))
         final_mf1s, final_aucs = [], []
         for tt in range(args.run):
-            args.seed = seed_l[tt]
+            args.del_ratio = del_ratio_l[tt]
             set_seeds(args.seed)
             if homo:
                 model = BWGNN(in_feats, h_feats, num_classes, graph, d=order)

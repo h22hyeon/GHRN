@@ -130,7 +130,7 @@ class BWGNN(nn.Module):
         h = self.act(h)
         h = self.linear2(h)
         h = self.act(h)
-        h_final = torch.zeros([len(in_feat), 0])
+        h_final = torch.zeros([len(in_feat), 0]).cuda()
         # h0_final = []
         for conv in self.conv:
             h0 = conv(self.g, h)
@@ -199,7 +199,7 @@ class BWGNN_Hetero(nn.Module):
 
         for relation in self.g.canonical_etypes:
             # print(relation)
-            h_final = torch.zeros([len(in_feat), 0])
+            h_final = torch.zeros([len(in_feat), 0]).cuda()
             for conv in self.conv:
                 h0 = conv(self.g[relation], h)
                 h_final = torch.cat([h_final, h0], -1)
