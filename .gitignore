@@ -1,0 +1,5 @@
+__pycache__/*
+AUC/*
+data/*
+practice_exp_logs/*
+execute_server.py
